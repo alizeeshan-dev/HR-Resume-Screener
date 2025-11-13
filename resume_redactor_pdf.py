@@ -155,10 +155,19 @@ class ResumeRedactorPDF:
         entities_to_redact = [e for e in entities if e['label'] in self.redact_entities]
         redact_list = []
         
-        # Add NER-detected entities
+        # Add NER-detected entities (with validation to avoid false positives)
         for entity in entities_to_redact:
             entity_text = entity['text']
             entity_text_cleaned = entity_text.replace(' .', '.').replace(' @', '@').replace(' -', '-')
+            
+            # Skip if too short (likely a false positive)
+            if len(entity_text_cleaned.strip()) < 3:
+                continue
+            
+            # Skip single characters or very short strings (common NER errors)
+            if entity['label'] in ['Email Address', 'Phone', 'Name', 'Location'] and len(entity_text_cleaned.strip()) < 5:
+                continue
+            
             redact_list.append({
                 'type': entity['label'],
                 'text': entity_text_cleaned
@@ -204,6 +213,31 @@ class ResumeRedactorPDF:
                         'type': 'Name (pattern)',
                         'text': name
                     })
+        
+        # First line name detection (ONLY if email or phone found in document - safer!)
+        # This handles modern resumes where name is on first line without label
+        has_contact_info = any(item['type'] in ['Email Address', 'Email Address (pattern)', 'Phone', 'Phone (pattern)'] for item in redact_list)
+        
+        if has_contact_info:
+            # Extract first non-empty line
+            first_line_pattern = r'^([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})\s*\n'
+            first_line_match = re.match(first_line_pattern, text.strip(), re.MULTILINE)
+            
+            if first_line_match:
+                potential_name = first_line_match.group(1).strip()
+                # Verify it's not a common header/title
+                exclude_words = ['Resume', 'Curriculum', 'Vitae', 'Profile', 'Summary', 'Objective', 
+                                'Experience', 'Education', 'Skills', 'Contact', 'Information',
+                                'Director', 'Manager', 'Engineer', 'Developer', 'Analyst', 'Consultant']
+                
+                if potential_name and len(potential_name) > 3:
+                    # Check if it contains any excluded words
+                    if not any(word in potential_name for word in exclude_words):
+                        if not any(potential_name in item['text'] for item in redact_list):
+                            redact_list.append({
+                                'type': 'Name (first line - pattern)',
+                                'text': potential_name
+                            })
         
         # Father's Name pattern (common in South Asian resumes)
         fathers_name_patterns = [
