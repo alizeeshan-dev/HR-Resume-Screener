@@ -214,21 +214,62 @@ class ResumeRedactorPDF:
                         'text': name
                     })
         
-        # First line name detection (ONLY if email or phone found in document - safer!)
+        # Name appearing before contact info (common in multi-column layouts)
+        # Pattern: Name on its own line, followed by phone and/or email within next few lines
+        name_before_contact_pattern = r'([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})\s*\n\s*(?:\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})'
+        name_before_contact_matches = re.findall(name_before_contact_pattern, text, re.MULTILINE)
+        for name in name_before_contact_matches:
+            name = ' '.join(name.split())
+            # Exclude company names and common headers
+            exclude_keywords = ['Limited', 'Ltd', 'Corporation', 'Corp', 'Company', 'Inc', 'Pvt', 
+                              'Resume', 'Curriculum', 'Vitae', 'Profile', 'Contact', 'Information']
+            if name and len(name) > 3:
+                if not any(keyword in name for keyword in exclude_keywords):
+                    if not any(name in item['text'] for item in redact_list):
+                        redact_list.append({
+                            'type': 'Name (before contact - pattern)',
+                            'text': name
+                        })
+        
+        # First line name detection with intelligent context checking
         # This handles modern resumes where name is on first line without label
+        
+        # Option 1: If contact info exists (email/phone), first line is likely a name
         has_contact_info = any(item['type'] in ['Email Address', 'Email Address (pattern)', 'Phone', 'Phone (pattern)'] for item in redact_list)
         
-        if has_contact_info:
+        # Option 2: Check if first line + second line pattern suggests resume header
+        # (First line = name, Second line = job title/designation)
+        lines = text.strip().split('\n')
+        has_job_title_pattern = False
+        
+        if len(lines) >= 2:
+            second_line = lines[1].strip()
+            # Common job title indicators
+            job_indicators = [
+                r'Director|Manager|Engineer|Developer|Architect|Consultant|Analyst|Specialist',
+                r'Chief|Senior|Junior|Lead|Head|Principal|Staff',
+                r'Officer|Executive|Associate|Coordinator|Administrator',
+                r'\bat\b.*(?:Inc|Ltd|Corporation|Company|Group)',  # "at Company Name"
+                r'-.*(?:Technology|Innovation|Development|Operations|Sales|Marketing)',  # "Director - Technology"
+            ]
+            
+            for indicator in job_indicators:
+                if re.search(indicator, second_line, re.IGNORECASE):
+                    has_job_title_pattern = True
+                    break
+        
+        # Proceed with first-line detection if we have contact info OR job title pattern
+        if has_contact_info or has_job_title_pattern:
             # Extract first non-empty line
             first_line_pattern = r'^([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})\s*\n'
             first_line_match = re.match(first_line_pattern, text.strip(), re.MULTILINE)
             
             if first_line_match:
                 potential_name = first_line_match.group(1).strip()
-                # Verify it's not a common header/title
+                # Verify it's not a common document header
                 exclude_words = ['Resume', 'Curriculum', 'Vitae', 'Profile', 'Summary', 'Objective', 
                                 'Experience', 'Education', 'Skills', 'Contact', 'Information',
-                                'Director', 'Manager', 'Engineer', 'Developer', 'Analyst', 'Consultant']
+                                'Professional', 'Personal', 'Portfolio', 'Document']
                 
                 if potential_name and len(potential_name) > 3:
                     # Check if it contains any excluded words
