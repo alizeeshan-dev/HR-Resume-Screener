@@ -203,16 +203,22 @@ class ResumeRedactorPDF:
         name_patterns = [
             r'Name\s+of\s+Expert\s*:\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})(?=\s*\n)',
             r'(?:^|\n)Name\s*:\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})(?=\s*\n)',
+            r'(?:^|\n)Name\s*\n\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})(?=\s*\n)',  # Name on separate line
+            r'(?:^|\n)([A-Z]{2,}(?:\s+[A-Z]{2,}){1,3})\s*\n\s*(?:Summary|Profile|Objective|Experience|Education|Skills|Professional)',  # All-caps name before section
         ]
         for pattern in name_patterns:
             matches = re.findall(pattern, text, re.MULTILINE)
             for name in matches:
                 name = ' '.join(name.split())
-                if name and len(name) > 3 and not any(name in item['text'] for item in redact_list):
-                    redact_list.append({
-                        'type': 'Name (pattern)',
-                        'text': name
-                    })
+                # Exclude common section headers that might be in all caps
+                exclude_sections = ['CONTACT', 'SUMMARY', 'PROFILE', 'OBJECTIVE', 'EXPERIENCE', 
+                                  'EDUCATION', 'SKILLS', 'REFERENCES', 'PERSONAL', 'DETAILS']
+                if name and len(name) > 3 and name not in exclude_sections:
+                    if not any(name in item['text'] for item in redact_list):
+                        redact_list.append({
+                            'type': 'Name (pattern)',
+                            'text': name
+                        })
         
         # Name appearing before contact info (common in multi-column layouts)
         # Pattern: Name on its own line, followed by phone and/or email within next few lines
@@ -283,6 +289,7 @@ class ResumeRedactorPDF:
         # Father's Name pattern (common in South Asian resumes)
         fathers_name_patterns = [
             r"Father'?s?\s+Name\s*:\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})(?=\s*\n)",
+            r"(?:^|\n)Father'?s?\s+Name\s*\n\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})(?=\s*\n)",  # Father's Name on separate line
         ]
         for pattern in fathers_name_patterns:
             matches = re.findall(pattern, text, re.MULTILINE)
@@ -297,12 +304,13 @@ class ResumeRedactorPDF:
         # Address pattern
         address_patterns = [
             r'Address\s*:\s+([A-Z0-9][^\n]{10,200}?)(?=\n\s*Date|$|\n\s*NIC|\n\s*Marital)',  # Stop before Date/NIC/Marital
+            r'(?:^|\n)Address\s*\n\s*([A-Z][^\n]{5,100})(?=\s*\n)',  # Address on separate line
         ]
         for pattern in address_patterns:
             matches = re.findall(pattern, text, re.MULTILINE | re.IGNORECASE)
             for address in matches:
                 address = address.strip()
-                if address and not any(address in item['text'] for item in redact_list):
+                if address and len(address) > 5 and not any(address in item['text'] for item in redact_list):
                     redact_list.append({
                         'type': 'Address (pattern)',
                         'text': address
@@ -312,6 +320,7 @@ class ResumeRedactorPDF:
         dob_patterns = [
             r'Date\s+of\s+Birth\s*:\s+(\d{1,2}\s+[A-Z]+,?\s+\d{4})',  # 11 MAY, 1988
             r'Date\s+of\s+Birth\s*:\s+(\d{2}/\d{2}/\d{4})',  # 02/01/1993
+            r'(?:^|\n)Date\s+of\s+Birth\s*\n\s*([A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})',  # August 19th, 1997
             r'DOB\s*:\s+(\d{2}/\d{2}/\d{4})',
             r'Born\s*:\s+(\d{2}/\d{2}/\d{4})',
         ]
@@ -375,8 +384,27 @@ class ResumeRedactorPDF:
         print("Redacting PDF...")
         doc = fitz.open(input_pdf_path)
         redaction_count = 0
+        total_pages = len(doc)
         
-        for page in doc:
+        for page_num, page in enumerate(doc):
+            # Redact header area only on first page (if PDF has multiple pages)
+            if page_num == 0 and total_pages > 1:
+                page_height = page.rect.height
+                header_height = page_height * 0.15  # Top 15% of page
+                
+                # Get all text in header area
+                header_rect = fitz.Rect(0, 0, page.rect.width, header_height)
+                header_blocks = page.get_text("blocks", clip=header_rect)
+                
+                # Redact all text blocks in header
+                for block in header_blocks:
+                    if len(block) >= 5:  # Block format: (x0, y0, x1, y1, text, block_no, block_type)
+                        x0, y0, x1, y1 = block[:4]
+                        block_rect = fitz.Rect(x0, y0, x1, y1)
+                        page.add_redact_annot(block_rect, fill=(0, 0, 0))
+                        redaction_count += 1
+            
+            # Then, redact specific PII items in the rest of the document
             for item in redact_list:
                 # Search for text with variations in spacing
                 text_to_find = item['text']
@@ -398,6 +426,13 @@ class ResumeRedactorPDF:
                 
                 # Redact all found instances
                 for rect in areas:
+                    # Skip if in header area on first page (already redacted)
+                    if page_num == 0 and total_pages > 1:
+                        page_height = page.rect.height
+                        header_height = page_height * 0.15
+                        if rect.y0 <= header_height:  # Skip if in header area
+                            continue
+                    
                     # Add redaction annotation
                     page.add_redact_annot(rect, fill=(0, 0, 0))  # Black fill
                     redaction_count += 1
