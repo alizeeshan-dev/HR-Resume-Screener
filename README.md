@@ -1,52 +1,64 @@
-# HR-Resume-Screener
-An AI-powered tool to automatically redact personal information from resumes (PDF and DOCX files).
+# AI Resume Redactor
+
+An AI-powered tool to automatically redact personal information from PDF resumes while preserving all formatting.
 
 ## Features
 
-✅ **Automatic PII Detection** using Hugging Face NER model
-✅ **Redacts**: Names, Email addresses, Phone numbers, Physical addresses
-✅ **Preserves**: Education, Experience, Skills, Company names, Job titles
-✅ **Format Preservation**: Outputs DOCX with formatting intact
-✅ **Pattern Matching**: Fallback regex patterns for emails and phone numbers
+✅ **AI-Powered PII Detection** - Uses Hugging Face BERT model + Pattern matching  
+✅ **Redacts**: Names, Emails, Phone numbers, Addresses, Date of Birth, ID numbers  
+✅ **Preserves**: Education, Experience, Skills, Companies, Job titles  
+✅ **Perfect Formatting** - Directly edits PDFs with black boxes, no format loss  
+✅ **Safe Detection** - Validates entities to avoid false positives
 
 ## Installation
 
-All dependencies are already installed in your virtual environment:
+1. **Clone the repository:**
 
-- PyPDF2
-- python-docx
-- transformers
-- torch
-- sentencepiece
-- protobuf
+```bash
+git clone https://github.com/alizeeshan-dev/HR-Resume-Screener.git
+cd HR-Resume-Screener
+```
+
+2. **Install dependencies:**
+
+```bash
+pip install -r requirements.txt
+```
+
+**Note:** First run will download the AI model (~431MB) from Hugging Face.
 
 ## Usage
 
 ### Quick Start
 
 ```python
-from resume_redactor import ResumeRedactor
+from resume_redactor_pdf import ResumeRedactorPDF
 
-# Initialize the redactor
-redactor = ResumeRedactor()
+# Initialize the redactor (loads AI model)
+redactor = ResumeRedactorPDF()
 
-# Process a resume file (PDF or DOCX)
-redactor.process_file("resume.pdf")
+# Process a PDF resume
+output_file, redacted_items = redactor.process_file("resume.pdf")
+
+print(f"Redacted PDF saved: {output_file}")
+print(f"Items redacted: {len(redacted_items)}")
 ```
 
-This will create:
+### Output
 
-- `resume_redacted.docx` - Redacted version with formatting
-- `resume_redacted.txt` - Plain text version
+- Input: `resume.pdf`
+- Output: `resume_redacted.pdf` (same format, PII blacked out)
 
 ### What Gets Redacted
 
-Personal information is replaced with `***`:
+Personal information is blacked out in the PDF:
 
-- **Names** - John Smith → \*\*\*
-- **Emails** - john.smith@gmail.com → \*\*\*
-- **Phone** - +1-555-123-4567 → \*\*\*
-- **Location** - San Francisco, CA → \*\*\*
+- **Names** - John Smith → **BLACK BOX**
+- **Emails** - john.smith@gmail.com → **BLACK BOX**
+- **Phone** - +1-555-123-4567 → **BLACK BOX**
+- **Addresses** - San Francisco, CA → **BLACK BOX**
+- **Date of Birth** - 11 MAY, 1988 → **BLACK BOX**
+- **ID Numbers** - NIC/Passport numbers → **BLACK BOX**
 
 ### What Is Preserved
 
@@ -60,46 +72,40 @@ Professional information remains intact:
 
 ## Files
 
-- `resume_redactor.py` - Main redaction class
-- `example_usage.py` - Usage examples
-- `testhugface.py` - Original NER model testing
+- `resume_redactor_pdf.py` - Main redaction class with full functionality
+- `simple_pdf_redactor.py` - Simple usage example
+- `requirements.txt` - Python dependencies
 
 ## How It Works
 
-1. **Extract Text**: Reads PDF/DOCX and extracts text content
-2. **AI Detection**: Uses BERT-based NER model to identify PII entities
-3. **Pattern Matching**: Additional regex patterns catch emails/phones
-4. **Redaction**: Replaces all detected PII with `***`
-5. **Output**: Saves redacted version in DOCX and TXT formats
+1. **Extract Text** - Reads PDF using PyMuPDF
+2. **AI Detection** - Uses `yashpwr/resume-ner-bert-v2` BERT model to identify entities
+3. **Pattern Matching** - Regex patterns catch emails, phones, DOB, addresses, ID numbers
+4. **Validation** - Filters out false positives (min length checks)
+5. **Redaction** - Directly blacks out detected PII in PDF using PyMuPDF
+6. **Output** - Saves redacted PDF with perfect formatting preserved
 
 ## Example
 
-**Original:**
+Run the included example:
 
-```
-John Smith
-Email: john.smith@gmail.com | Phone: +1-555-123-4567
-Location: San Francisco, CA
-
-Senior Software Engineer at Google
-Skills: Python, JavaScript, Machine Learning
+```python
+python simple_pdf_redactor.py
 ```
 
-**Redacted:**
+## Dependencies
 
-```
-***
-Email: *** | Phone: ***
-Location: ***
-
-Senior Software Engineer at Google
-Skills: Python, JavaScript, Machine Learning
-```
+- PyPDF2 - PDF text extraction
+- python-docx - DOCX support
+- transformers - Hugging Face models
+- torch - PyTorch for model inference
+- sentencepiece - Tokenization
+- protobuf - Model serialization
+- pymupdf (fitz) - PDF editing and redaction
 
 ## Model Information
 
-Uses `yashpwr/resume-ner-bert-v2` from Hugging Face
-
-- Trained specifically for resume entity extraction
-- Supports 12 entity types
-- BERT-based architecture
+- **Model**: `yashpwr/resume-ner-bert-v2` from Hugging Face
+- **Type**: BERT-based Named Entity Recognition
+- **Trained for**: Resume entity extraction
+- **Size**: ~431MB

@@ -1,0 +1,7 @@
+PyPDF2
+python-docx
+transformers
+torch
+sentencepiece
+protobuf
+pymupdf
